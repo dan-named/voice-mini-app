@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import type { Agent, Message } from "../types";
 import { useRecorder } from "../hooks/useRecorder";
-import { transcribeAndSend, audioUrl } from "../api";
+import { transcribeAndSend, sendText, audioUrl } from "../api";
 
 interface Props {
   agent: Agent;
@@ -11,7 +11,9 @@ export function ChatView({ agent }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { recording, start, stop, permissionError } = useRecorder();
+  const [textInput, setTextInput] = useState("");
+  const [micAvailable, setMicAvailable] = useState<boolean | null>(null);
+  const { recording, start, stop } = useRecorder();
   const bottomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -24,6 +26,21 @@ export function ChatView({ agent }: Props) {
     setMessages([]);
     setError(null);
   }, [agent.id]);
+
+  // Check mic availability on mount
+  useEffect(() => {
+    if (navigator.mediaDevices?.getUserMedia) {
+      navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .then((stream) => {
+          stream.getTracks().forEach((t) => t.stop());
+          setMicAvailable(true);
+        })
+        .catch(() => setMicAvailable(false));
+    } else {
+      setMicAvailable(false);
+    }
+  }, []);
 
   const handleRecord = async () => {
     if (recording) {
@@ -54,7 +71,6 @@ export function ChatView({ agent }: Props) {
           };
           setMessages((prev) => [...prev, agentMsg]);
 
-          // Auto-play response
           if (result.audio_id && audioRef.current) {
             audioRef.current.src = audioUrl(result.audio_id);
             audioRef.current.play().catch(() => {});
@@ -69,8 +85,34 @@ export function ChatView({ agent }: Props) {
       try {
         await start();
       } catch {
-        setError("Microphone access denied");
+        setMicAvailable(false);
       }
+    }
+  };
+
+  const handleSendText = async () => {
+    const text = textInput.trim();
+    if (!text || loading) return;
+
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      role: "user",
+      text,
+      timestamp: Date.now(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setTextInput("");
+    setLoading(true);
+    setError(null);
+
+    try {
+      await sendText(agent.id, text);
+      // For now, show that message was sent. Response will come via polling or WS.
+      // TODO: poll for response
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unknown error");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -91,7 +133,11 @@ export function ChatView({ agent }: Props) {
           <div style={{ textAlign: "center", color: "var(--tg-theme-hint-color, #999)", marginTop: 40 }}>
             {agent.emoji} {agent.name}
             <br />
-            <span style={{ fontSize: 13 }}>Hold the button to record a voice message</span>
+            <span style={{ fontSize: 13 }}>
+              {micAvailable === false
+                ? "Type a message below"
+                : "Tap the mic to record, or type a message"}
+            </span>
           </div>
         )}
 
@@ -152,43 +198,94 @@ export function ChatView({ agent }: Props) {
               fontSize: 14,
             }}
           >
-            {agent.name} thinking...
+            {agent.name} ...
           </div>
         )}
 
-        {(error || permissionError) && (
+        {error && (
           <div style={{ color: "red", fontSize: 13, textAlign: "center", padding: "0 12px" }}>
-            {permissionError || error}
+            {error}
           </div>
         )}
 
         <div ref={bottomRef} />
       </div>
 
-      {/* Record button */}
-      <div style={{ padding: 12, display: "flex", justifyContent: "center" }}>
-        <button
-          onClick={handleRecord}
+      {/* Input area */}
+      <div
+        style={{
+          padding: "8px 12px 12px",
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+          borderTop: "1px solid var(--tg-theme-secondary-bg-color, #eee)",
+        }}
+      >
+        {/* Text input */}
+        <input
+          type="text"
+          value={textInput}
+          onChange={(e) => setTextInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSendText()}
+          placeholder={`Message ${agent.name}...`}
           disabled={loading}
           style={{
-            width: 64,
-            height: 64,
-            borderRadius: "50%",
-            border: "none",
-            background: recording
-              ? "#e53935"
-              : loading
-                ? "var(--tg-theme-hint-color, #999)"
-                : "var(--tg-theme-button-color, #3390ec)",
-            color: "var(--tg-theme-button-text-color, #fff)",
-            fontSize: 24,
-            cursor: loading ? "default" : "pointer",
-            transition: "all 0.2s",
-            transform: recording ? "scale(1.1)" : "scale(1)",
+            flex: 1,
+            padding: "10px 14px",
+            borderRadius: 20,
+            border: "1px solid var(--tg-theme-secondary-bg-color, #ddd)",
+            background: "var(--tg-theme-secondary-bg-color, #f5f5f5)",
+            color: "var(--tg-theme-text-color, #000)",
+            fontSize: 14,
+            outline: "none",
           }}
-        >
-          {recording ? "⏹" : loading ? "..." : "🎤"}
-        </button>
+        />
+
+        {/* Send text button */}
+        {textInput.trim() ? (
+          <button
+            onClick={handleSendText}
+            disabled={loading}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: "50%",
+              border: "none",
+              background: "var(--tg-theme-button-color, #3390ec)",
+              color: "var(--tg-theme-button-text-color, #fff)",
+              fontSize: 18,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            ↑
+          </button>
+        ) : micAvailable !== false ? (
+          /* Mic button */
+          <button
+            onClick={handleRecord}
+            disabled={loading}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: "50%",
+              border: "none",
+              background: recording
+                ? "#e53935"
+                : loading
+                  ? "var(--tg-theme-hint-color, #999)"
+                  : "var(--tg-theme-button-color, #3390ec)",
+              color: "var(--tg-theme-button-text-color, #fff)",
+              fontSize: 18,
+              cursor: loading ? "default" : "pointer",
+              transition: "all 0.2s",
+              transform: recording ? "scale(1.1)" : "scale(1)",
+              flexShrink: 0,
+            }}
+          >
+            {recording ? "⏹" : "🎤"}
+          </button>
+        ) : null}
       </div>
 
       <audio ref={audioRef} style={{ display: "none" }} />

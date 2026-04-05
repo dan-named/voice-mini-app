@@ -18,6 +18,15 @@ export async function transcribeAndSend(agent: string, audioBlob: Blob) {
   }>;
 }
 
+export async function sendText(agent: string, text: string) {
+  const resp = await fetch(`${API_URL}/send?agent=${agent}&text=${encodeURIComponent(text)}`, {
+    method: "POST",
+  });
+
+  if (!resp.ok) throw new Error(`API error: ${resp.status}`);
+  return resp.json() as Promise<{ ok: boolean; message_id: number }>;
+}
+
 export function audioUrl(audioId: string) {
   return `${API_URL}/audio/${audioId}`;
 }
