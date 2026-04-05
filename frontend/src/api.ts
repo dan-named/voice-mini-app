@@ -1,11 +1,25 @@
 const API_URL = import.meta.env.VITE_API_URL || "https://voice-api.dan-ai.com";
 
+function getInitData(): string {
+  const tg = (window as any).Telegram?.WebApp;
+  return tg?.initData || "";
+}
+
+function authHeaders(): Record<string, string> {
+  const initData = getInitData();
+  if (initData) {
+    return { Authorization: `tma ${initData}` };
+  }
+  return {};
+}
+
 export async function transcribeAndSend(agent: string, audioBlob: Blob) {
   const form = new FormData();
   form.append("audio", audioBlob, "voice.ogg");
 
   const resp = await fetch(`${API_URL}/voice?agent=${agent}`, {
     method: "POST",
+    headers: authHeaders(),
     body: form,
   });
 
@@ -21,6 +35,7 @@ export async function transcribeAndSend(agent: string, audioBlob: Blob) {
 export async function sendText(agent: string, text: string) {
   const resp = await fetch(`${API_URL}/send?agent=${agent}&text=${encodeURIComponent(text)}`, {
     method: "POST",
+    headers: authHeaders(),
   });
 
   if (!resp.ok) throw new Error(`API error: ${resp.status}`);

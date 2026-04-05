@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from openai import AsyncOpenAI
 
@@ -21,6 +21,7 @@ from config import (
     GUARD_URL, GUARD_TOKEN, OPENAI_API_KEY,
     BIND_HOST, BIND_PORT, AGENT_VOICES, CORS_ORIGINS,
 )
+from auth import require_telegram_user
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("voice-backend")
@@ -60,7 +61,7 @@ async def health():
 
 
 @app.post("/transcribe")
-async def transcribe(audio: UploadFile):
+async def transcribe(audio: UploadFile, user: dict = Depends(require_telegram_user)):
     """Speech-to-text via Whisper API."""
     audio_bytes = await audio.read()
     if len(audio_bytes) > 25 * 1024 * 1024:
@@ -82,7 +83,7 @@ async def transcribe(audio: UploadFile):
 
 
 @app.post("/synthesize")
-async def synthesize(agent: str, text: str):
+async def synthesize(agent: str, text: str, user: dict = Depends(require_telegram_user)):
     """Text-to-speech via OpenAI TTS."""
     if agent not in AGENT_VOICES:
         raise HTTPException(400, f"Unknown agent: {agent}")
@@ -109,7 +110,7 @@ async def synthesize(agent: str, text: str):
 
 
 @app.post("/send")
-async def send_message(agent: str, text: str):
+async def send_message(agent: str, text: str, user: dict = Depends(require_telegram_user)):
     """Send text message to agent via Guard."""
     if agent not in AGENT_VOICES:
         raise HTTPException(400, f"Unknown agent: {agent}")
@@ -124,7 +125,7 @@ async def send_message(agent: str, text: str):
 
 
 @app.post("/voice")
-async def voice_message(agent: str, audio: UploadFile):
+async def voice_message(agent: str, audio: UploadFile, user: dict = Depends(require_telegram_user)):
     """Full pipeline: audio → transcribe → send to agent → poll response → TTS → return audio."""
     if agent not in AGENT_VOICES:
         raise HTTPException(400, f"Unknown agent: {agent}")
