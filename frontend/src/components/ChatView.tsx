@@ -11,7 +11,7 @@ export function ChatView({ agent }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { recording, start, stop } = useRecorder();
+  const { recording, start, stop, permissionError } = useRecorder();
   const bottomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -156,8 +156,10 @@ export function ChatView({ agent }: Props) {
           </div>
         )}
 
-        {error && (
-          <div style={{ color: "red", fontSize: 13, textAlign: "center" }}>{error}</div>
+        {(error || permissionError) && (
+          <div style={{ color: "red", fontSize: 13, textAlign: "center", padding: "0 12px" }}>
+            {permissionError || error}
+          </div>
         )}
 
         <div ref={bottomRef} />
